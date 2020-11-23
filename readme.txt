@@ -5,7 +5,7 @@ ports_status
 
 Application Version
 ===================
-0.6
+0.7
 
 
 NCOS Devices Supported
