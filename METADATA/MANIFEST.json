@@ -1,0 +1,29 @@
+{
+    "app": {
+        "auto_start": true,
+        "date": "2020-11-23T10:24:01.750305",
+        "files": {
+            ".idea/inspectionProfiles/Project_Default.xml": "578aba2f6eeb3ad29b547b98447cd40be59f0417a2b5f4df5516407d7b0d8d31",
+            ".idea/inspectionProfiles/profiles_settings.xml": "6172c5997eeb3cd19c9ca2b5b97d6e2983cdd1fa60b2460d7bbb74055edcaa46",
+            "cs.py": "24b479cb4fa6b94bc346ba7e6eb9a3da0de58cfec6b98326ae85b2612017c493",
+            "package.ini": "d8c4c610f1fcc1371fe10cd6de818d7dcceacfd8555e87c195af754545906a5b",
+            "ports_status.py": "0301dd6553922dfef4ebef4581d5ae0f9f24de5f6538a7b683f78a54b9e46df6",
+            "readme.txt": "457d138b58a97de8243572a6e4d37945e7384a6d4cc1d0e129e9b7be6b3dd1ae",
+            "start.sh": "320bb13a734a6a4af34e4a830b571c2088b40618dc7c9a9a3690a983eef457f9"
+        },
+        "firmware_major": 7,
+        "firmware_minor": 2,
+        "name": "ports_status",
+        "notes": "Sets description field to reflect LAN/WAN/Modem status",
+        "reboot": true,
+        "restart": false,
+        "uuid": "7af63d02-547e-4235-adbe-48ad427d1e18",
+        "vendor": "Cradlepoint",
+        "version_major": 0,
+        "version_minor": 5
+    },
+    "pmf": {
+        "version_major": 1,
+        "version_minor": 0
+    }
+}
