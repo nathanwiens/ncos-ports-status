@@ -71,6 +71,8 @@ while 1:
                     ports_status += " 🟢 "
                 else:
                     ports_status += " ⚫️ "
+            else:
+                ports_status += " ⚫️ "
         else:
             ports_status += " ⚫️ "
 
