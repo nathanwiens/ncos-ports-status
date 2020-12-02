@@ -17,15 +17,17 @@ if DEBUG:
 while 1:
     ports_status = ""
     is_available_modem = 0
-    sfp = ''
+    is_available_wan = 0
+    # sfp = ''
     try:
         sfp = cs.CSClient().get('/status/wan/devices/ethernet-sfp0/status').get('data')
     except:
         if DEBUG:
             print("Couldn't get SFP WAN Status")
 
-    """Get status of all WAN devices"""
-    for wan in cs.CSClient().get('/status/wan/devices').get('data'):
+    wans = cs.CSClient().get('/status/wan/devices').get('data')
+    """Get status of all modems"""
+    for wan in (wan for wan in wans if 'mdm' in wan):
 
         """Filter to only track modems. Will show green if at least one modem is active"""
         if 'mdm' in wan:
@@ -41,7 +43,7 @@ while 1:
                 break
 
             elif 'available' in summary:
-                is_available_modem = 1
+                is_available_modem = 2
                 ports_status += "MDM: 🟡 "
                 """If standby modem found, keep checking for an active one"""
                 continue
@@ -53,28 +55,42 @@ while 1:
     if is_available_modem == 0:
         ports_status += "MDM: ⚫️ "
 
+    """Get status of ethernet/WiFi WANs"""
+    for wan in (wan for wan in wans if 'ethernet' in wan or 'wwan' in wan):
+
+        summary = cs.CSClient().get('/status/wan/devices/{}/status/summary'.format(wan)).get('data')
+
+        if 'connected' in summary:
+            is_available_wan = 1
+            ports_status += "WAN: 🟢 "
+
+            """Stop checking if active modem is found"""
+            break
+
+        elif 'available' in summary:
+            is_available_wan = 2
+            ports_status += "WAN: 🟡 "
+            """If standby modem found, keep checking for an active one"""
+            continue
+
+        elif 'error' in summary:
+            continue
+
+    """If no active/standby WANs are found, show offline"""
+    if is_available_wan == 0:
+        ports_status += "WAN: ⚫️ "
+
+    ports_status += " LAN: "
+
     """Get status of all ethernet ports"""
     for port in cs.CSClient().get('/status/ethernet').get('data'):
-        """Add WAN label, except for IBR200 which doesn't have ethernet WAN"""
-        if port['port'] is 0 and 'IBR200' not in model:
-            ports_status += " WAN: "
-        elif (port['port'] is 1) or (port['port'] is 0 and 'IBR200' in model):
-            """Add LAN label, starting at port 0 for IBR200 and port 1 for all others"""
-            ports_status += " LAN: "
+        """Ignore ethernet0 (treat as WAN) except for IBR200"""
+        if (port['port'] >= 1) or (port['port'] is 0 and 'IBR200' in model):
 
-        if port['link'] == "up":
-            ports_status += " 🟢 "
-        elif (port['port'] is 0 and 'IBR200' not in model) and port['link'] == "down":
-            """If Ethernet WAN is down, check for SFP WAN"""
-            if sfp:
-                if sfp['connection_state'] == "connected":
-                    ports_status += " 🟢 "
-                else:
-                    ports_status += " ⚫️ "
+            if port['link'] == "up":
+                ports_status += " 🟢 "
             else:
                 ports_status += " ⚫️ "
-        else:
-            ports_status += " ⚫️ "
 
     """Write string to description field"""
     if DEBUG:
