@@ -9,6 +9,7 @@ if DEBUG:
 
 if DEBUG:
     print("Getting Model")
+
 """Get model number, since IBR200 doesn't have ethernet WAN"""
 model = cs.CSClient().get('/config/system/admin/product_name').get('data')
 if DEBUG:
@@ -18,12 +19,8 @@ while 1:
     ports_status = ""
     is_available_modem = 0
     is_available_wan = 0
-    # sfp = ''
-    try:
-        sfp = cs.CSClient().get('/status/wan/devices/ethernet-sfp0/status').get('data')
-    except:
-        if DEBUG:
-            print("Couldn't get SFP WAN Status")
+    is_available_wwan = 0
+    is_configured_wwan = 0
 
     wans = cs.CSClient().get('/status/wan/devices').get('data')
     """Get status of all modems"""
@@ -38,11 +35,10 @@ while 1:
             if 'connected' in summary:
                 is_available_modem = 1
                 ports_status += "MDM: 🟢 "
-
                 """Stop checking if active modem is found"""
                 break
 
-            elif 'available' in summary:
+            elif 'available' in summary or 'standby' in summary:
                 is_available_modem = 2
                 ports_status += "MDM: 🟡 "
                 """If standby modem found, keep checking for an active one"""
@@ -55,32 +51,54 @@ while 1:
     if is_available_modem == 0:
         ports_status += "MDM: ⚫️ "
 
-    """Get status of ethernet/WiFi WANs"""
-    for wan in (wan for wan in wans if 'ethernet' in wan or 'wwan' in wan):
-
+    for wan in (wan for wan in wans if 'wwan' in wan):
+        is_configured_wwan = 1
         summary = cs.CSClient().get('/status/wan/devices/{}/status/summary'.format(wan)).get('data')
 
         if 'connected' in summary:
-            is_available_wan = 1
-            ports_status += "WAN: 🟢 "
-
-            """Stop checking if active modem is found"""
+            is_available_wwan = 1
+            ports_status += "WWAN: 🟢 "
+            """Stop checking if active WWAN is found"""
             break
 
-        elif 'available' in summary:
-            is_available_wan = 2
-            ports_status += "WAN: 🟡 "
-            """If standby modem found, keep checking for an active one"""
+        elif 'available' in summary or 'standby' in summary:
+            is_available_wwan = 2
+            ports_status += "WWAN: 🟡 "
+            """If standby WWAN found, keep checking for an active one"""
             continue
 
         elif 'error' in summary:
             continue
 
     """If no active/standby WANs are found, show offline"""
-    if is_available_wan == 0:
+    if is_available_wwan == 0 and is_configured_wwan == 1:
+        ports_status += "WWAN: ⚫️ "
+
+    """Get status of ethernet WANs"""
+    for wan in (wan for wan in wans if 'ethernet' in wan):
+
+        summary = cs.CSClient().get('/status/wan/devices/{}/status/summary'.format(wan)).get('data')
+
+        if 'connected' in summary:
+            is_available_wan = 1
+            ports_status += "WAN: 🟢 "
+            """Stop checking if active WAN is found"""
+            break
+
+        elif 'available' in summary or 'standby' in summary:
+            is_available_wan = 2
+            ports_status += "WAN: 🟡 "
+            """If standby WAN found, keep checking for an active one"""
+            continue
+
+        elif 'error' in summary:
+            continue
+
+    """If no active/standby WANs are found, show offline"""
+    if is_available_wan == 0 and 'IBR200' not in model:
         ports_status += "WAN: ⚫️ "
 
-    ports_status += " LAN: "
+    ports_status += "LAN:"
 
     """Get status of all ethernet ports"""
     for port in cs.CSClient().get('/status/ethernet').get('data'):
