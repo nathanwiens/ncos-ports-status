@@ -11,6 +11,7 @@ if DEBUG:
     print("Getting Model")
 
 """Get model number, since IBR200 doesn't have ethernet WAN"""
+model = ''
 model = cs.CSClient().get('/config/system/admin/product_name').get('data')
 if DEBUG:
     print(model)
@@ -35,14 +36,10 @@ while 1:
             if 'connected' in summary:
                 is_available_modem = 1
                 ports_status += "MDM: 🟢 "
-                """Stop checking if active modem is found"""
-                break
 
             elif 'available' in summary or 'standby' in summary:
                 is_available_modem = 2
                 ports_status += "MDM: 🟡 "
-                """If standby modem found, keep checking for an active one"""
-                continue
 
             elif 'error' in summary:
                 continue
@@ -82,14 +79,10 @@ while 1:
         if 'connected' in summary:
             is_available_wan = 1
             ports_status += "WAN: 🟢 "
-            """Stop checking if active WAN is found"""
-            break
 
         elif 'available' in summary or 'standby' in summary:
             is_available_wan = 2
             ports_status += "WAN: 🟡 "
-            """If standby WAN found, keep checking for an active one"""
-            continue
 
         elif 'error' in summary:
             continue
@@ -103,8 +96,7 @@ while 1:
     """Get status of all ethernet ports"""
     for port in cs.CSClient().get('/status/ethernet').get('data'):
         """Ignore ethernet0 (treat as WAN) except for IBR200"""
-        if (port['port'] >= 1) or (port['port'] is 0 and 'IBR200' in model):
-
+        if (port['port'] is 0 and 'IBR200' in model) or (port['port'] >= 1):
             if port['link'] == "up":
                 ports_status += " 🟢 "
             else:
