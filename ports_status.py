@@ -24,6 +24,38 @@ while 1:
     is_configured_wwan = 0
 
     wans = cs.CSClient().get('/status/wan/devices').get('data')
+
+    """Get status of ethernet WANs"""
+    for wan in (wan for wan in wans if 'ethernet' in wan):
+
+        summary = cs.CSClient().get('/status/wan/devices/{}/status/summary'.format(wan)).get('data')
+
+        if 'connected' in summary:
+            is_available_wan = 1
+            ports_status += "WAN: 🟢 "
+
+        elif 'available' in summary or 'standby' in summary:
+            is_available_wan = 2
+            ports_status += "WAN: 🟡 "
+
+        elif 'error' in summary:
+            continue
+
+    """If no active/standby WANs are found, show offline"""
+    if is_available_wan == 0 and 'IBR200' not in model:
+        ports_status += "WAN: ⚫️ "
+
+    ports_status += "LAN:"
+
+    """Get status of all ethernet ports"""
+    for port in cs.CSClient().get('/status/ethernet').get('data'):
+        """Ignore ethernet0 (treat as WAN) except for IBR200"""
+        if (port['port'] is 0 and 'IBR200' in model) or (port['port'] >= 1):
+            if port['link'] == "up":
+                ports_status += " 🟢 "
+            else:
+                ports_status += " ⚫️ "
+
     """Get status of all modems"""
     for wan in (wan for wan in wans if 'mdm' in wan):
 
@@ -70,37 +102,6 @@ while 1:
     """If no active/standby WANs are found, show offline"""
     if is_available_wwan == 0 and is_configured_wwan == 1:
         ports_status += "WWAN: ⚫️ "
-
-    """Get status of ethernet WANs"""
-    for wan in (wan for wan in wans if 'ethernet' in wan):
-
-        summary = cs.CSClient().get('/status/wan/devices/{}/status/summary'.format(wan)).get('data')
-
-        if 'connected' in summary:
-            is_available_wan = 1
-            ports_status += "WAN: 🟢 "
-
-        elif 'available' in summary or 'standby' in summary:
-            is_available_wan = 2
-            ports_status += "WAN: 🟡 "
-
-        elif 'error' in summary:
-            continue
-
-    """If no active/standby WANs are found, show offline"""
-    if is_available_wan == 0 and 'IBR200' not in model:
-        ports_status += "WAN: ⚫️ "
-
-    ports_status += "LAN:"
-
-    """Get status of all ethernet ports"""
-    for port in cs.CSClient().get('/status/ethernet').get('data'):
-        """Ignore ethernet0 (treat as WAN) except for IBR200"""
-        if (port['port'] is 0 and 'IBR200' in model) or (port['port'] >= 1):
-            if port['link'] == "up":
-                ports_status += " 🟢 "
-            else:
-                ports_status += " ⚫️ "
 
     """Write string to description field"""
     if DEBUG:
