@@ -9,17 +9,25 @@ this file. Unauthorized reproduction or distribution of this file is subject to 
 criminal penalties.
 """
 
+
 import json
+import os
 import re
+import select
 import socket
+import threading
+import logging.handlers
+import signal
 import sys
+
+try:
+    import traceback
+except ImportError:
+    traceback = None
 
 
 class SdkCSException(Exception):
     pass
-
-
-CSCLIENT_NAME = 'SDK CSClient'
 
 
 class CSClient(object):
@@ -52,7 +60,14 @@ class CSClient(object):
             cls._instances[cls] = super().__new__(cls)
         return cls._instances[cls]
 
-    def __init__(self, init=False):
+    def __init__(self, app_name, init=False):
+        self.app_name = app_name
+        handlers = [logging.StreamHandler()]
+        if sys.platform == 'linux2':
+            handlers.append(logging.handlers.SysLogHandler(address='/dev/log'))
+        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(name)s: %(message)s', datefmt='%b %d %H:%M:%S',
+                            handlers=handlers)
+        self.logger = logging.getLogger(app_name)
         if not init:
             return
 
@@ -78,7 +93,7 @@ class CSClient(object):
         """
         if sys.platform == 'linux2':
             cmd = "get\n{}\n{}\n{}\n".format(base, query, tree)
-            return self._dispatch(cmd)
+            return self._dispatch(cmd).get('data')
         else:
             # Running in a computer so use http to send the get to the device.
             import requests
@@ -93,7 +108,7 @@ class CSClient(object):
                 print("Timeout: device at {} did not respond.".format(device_ip))
                 return None
 
-            return json.loads(response.text)
+            return json.loads(response.text).get('data')
 
     def put(self, base, value='', query='', tree=0):
         """
@@ -116,8 +131,7 @@ class CSClient(object):
         Returns:
             A dictionary containing the response (i.e. {"success": True, "data:": {}}
         """
-        #value = json.dumps(value).replace(' ', '')
-        value = json.dumps(value)
+        value = json.dumps(value, ensure_ascii=False)
         if sys.platform == 'linux2':
             cmd = "put\n{}\n{}\n{}\n{}\n".format(base, query, tree, value)
             return self._dispatch(cmd)
@@ -139,7 +153,89 @@ class CSClient(object):
 
             return json.loads(response.text)
 
-    def alert(self, app_name='', value=''):
+    def post(self, base, value='', query=''):
+        """
+        Constructs and sends a post request to update or add specified data to the device router tree.
+
+        The behavior of this method is contextual:
+            - If the app is installed on(and executed from) a device, it directly updates or adds the specified data to
+              the router tree.
+            - If the app running remotely from a computer it calls the HTTP POST method to update or add the specified
+              data.
+
+
+        Args:
+            base: String representing a path to a resource on a router tree,
+                  (i.e. '/config/system/logging/level').
+            value: Not required.
+            query: Not required.
+
+        Returns:
+            A dictionary containing the response (i.e. {"success": True, "data:": {}}
+        """
+        value = json.dumps(value)
+        if sys.platform == 'linux2':
+            cmd = f"post\n{base}\n{query}\n{value}\n"
+            return self._dispatch(cmd)
+        else:
+            # Running in a computer so use http to send the post to the device.
+            import requests
+            device_ip, username, password = self._get_device_access_info()
+            device_api = 'http://{}/api/{}/{}'.format(device_ip, base, query)
+
+            try:
+                response = requests.post(device_api,
+                                        headers={"Content-Type": "application/x-www-form-urlencoded"},
+                                        auth=self._get_auth(device_ip, username, password),
+                                        data={"data": '{}'.format(value)})
+            except (requests.exceptions.Timeout,
+                    requests.exceptions.ConnectionError):
+                print("Timeout: device at {} did not respond.".format(device_ip))
+                return None
+
+            return json.loads(response.text)
+
+    def delete(self, base, query=''):
+        """
+        Constructs and sends a delete request to delete specified data to the device router tree.
+
+        The behavior of this method is contextual:
+            - If the app is installed on(and executed from) a device, it directly deletes the specified data to
+              the router tree.
+            - If the app running remotely from a computer it calls the HTTP DELETE method to update or add the specified
+              data.
+
+
+        Args:
+            base: String representing a path to a resource on a router tree,
+                  (i.e. '/config/system/logging/level').
+            query: Not required.
+
+        Returns:
+            A dictionary containing the response (i.e. {"success": True, "data:": {}}
+        """
+        if sys.platform == 'linux2':
+            cmd = "delete\n{}\n{}\n".format(base, query)
+            return self._dispatch(cmd)
+        else:
+            # Running in a computer so use http to send the delete to the device.
+            import requests
+            device_ip, username, password = self._get_device_access_info()
+            device_api = 'http://{}/api/{}/{}'.format(device_ip, base, query)
+
+            try:
+                response = requests.delete(device_api,
+                                        headers={"Content-Type": "application/x-www-form-urlencoded"},
+                                        auth=self._get_auth(device_ip, username, password),
+                                        data={"data": '{}'.format(value)})
+            except (requests.exceptions.Timeout,
+                    requests.exceptions.ConnectionError):
+                print("Timeout: device at {} did not respond.".format(device_ip))
+                return None
+
+            return json.loads(response.text)
+
+    def alert(self, value=''):
         """
         Constructs and sends a custom alert to NCM for the device. Apps calling this method must be running
         on the target device to send the alert. If invoked while running on a computer, then only a log is output.
@@ -154,32 +250,28 @@ class CSClient(object):
             Failure: An error
         """
         if sys.platform == 'linux2':
-            cmd = "alert\n{}\n{}\n".format(app_name, value)
+            cmd = "alert\n{}\n{}\n".format(self.app_name, value)
             return self._dispatch(cmd)
         else:
             # Running in a computer and can't actually send the alert.
             print('Alert is only available when running the app in NCOS.')
             print('Alert Text: {}'.format(value))
 
-    def log(self, name='', value=''):
+    def log(self, value=''):
         """
-        Adds a DEBUG log to the device SYSLOG.
-        Note: It is recommend that app_logging.py be used for logging which
-              supports all logging levels.
+        Adds an INFO log to the device SYSLOG.
 
         Args:
-        name: String of the name of your application.
         value: String text for the log.
 
         Returns:
         None
         """
         if sys.platform == 'linux2':
-            cmd = "log\n{}\n{}\n".format(name, value)
-            return self._dispatch(cmd)
+            self.logger.info(value)
         else:
             # Running in a computer so just use print for the log.
-            print('[{}]: {}'.format(name, value))
+            print(value)
 
     def _get_auth(self, device_ip, username, password):
         # This is only needed when the app is running in a computer.
@@ -264,7 +356,7 @@ class CSClient(object):
             # ignore the command error, continue on to next command
             errmsg = "dispatch failed with exception={} err={}".format(type(err), str(err))
         if errmsg is not None:
-            self.log(CSCLIENT_NAME, errmsg)
+            self.log(self.app_name, errmsg)
             pass
         return result
 
@@ -316,5 +408,123 @@ class CSClient(object):
             # ignore the command error, continue on to next command
             errmsg = "_receive failed with exception={} err={}".format(type(err), str(err))
         if errmsg is not None:
-            self.log(CSCLIENT_NAME, errmsg)
+            self.log(self.app_name, errmsg)
         return result
+
+
+class EventingCSClient(CSClient):
+    running = False
+    registry = {}
+    eids = 1
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.on = self.register
+        self.un = self.unregister
+
+    def start(self):
+        if self.running:
+            self.log(f"Eventing Config Store {self.pid} already running")
+            return
+        self.running = True
+        self.pid = os.getpid()
+        self.f = '/var/tmp/csevent_%d.sock' % self.pid
+        try:
+            os.unlink(self.f)
+        except FileNotFoundError:
+            pass
+        self.event_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.event_sock.bind(self.f)
+        self.event_sock.listen()  # backlog is optional. already set on value found in /proc
+        self.event_sock.setblocking(False)
+        self.eloop = threading.Thread(target=self._handle_events)
+        self.eloop.start()
+
+    def stop(self):
+        if not self.running:
+            return
+        self.log(f"Stopping {self.app_name}")
+        for k in list(self.registry.keys()):
+            self.unregister(k)
+        self.event_sock.close()
+        os.unlink(self.f)
+        self.running = False
+
+    def _handle_events(self):
+        poller = select.poll()
+        poller.register(self.event_sock,
+                        select.POLLIN | select.POLLERR | select.POLLHUP)  # I don't unregsiter this in cleaning up!
+        while self.running:
+            try:
+                events = poller.poll(1000)
+                for f, ev in events:
+                    if ev & (select.POLLERR | select.POLLHUP):
+                        self.log("Hangup/error received. Stopping")
+                        self.stop()  # TODO: restart w/ cached registrations. Will no longer be an error case
+
+                    if ev & select.POLLIN:
+                        conn, addr = self.event_sock.accept()
+                        result = self._receive(conn)
+                        eid = int(result['data']['id'])
+                        try:
+                            cb = self.registry[eid]['cb']
+                            args = self.registry[eid]['args']
+                            try:
+                                # PUTting just a string to config store results in a json encoded string returned.
+                                # e.g. set /config/system/logging/level "debug", result['data']['cfg'] is '"debug"'
+                                cfg = json.loads(result['data']['cfg'])
+                            except TypeError as e:
+                                # Non-string path
+                                cfg = result['data']['cfg']
+                            try:
+                                cb_return = cb(result['data']['path'], cfg, args)
+                            except:
+                                if traceback:
+                                    traceback.print_exc()
+                                self.log(f"Exception during callback for {str(self.registry[eid])}")
+                            if result['data']['action'] == 'get':  # We've something to send back.
+                                # config_store_receiver expects json
+                                cb_return = json.JSONEncoder().encode(cb_return)
+                                conn.sendall(
+                                    cb_return.encode())  # No dispatch. Config store receiver will put to config store.
+                        except (NameError, ValueError) as e:
+                            self.log(f"Could not find register data for eid {eid}")
+            except OSError as e:
+                self.log(f"OSError: {e}")
+                raise
+
+    def register(self, action: object, path: object, callback: object, *args: object) -> object:
+        if not self.running:
+            self.start()
+        # what about multiple registration?
+        eid = self.eids
+        self.eids += 1
+        self.registry[eid] = {'cb': callback, 'action': action, 'path': path, 'args': args}
+        cmd = "register\n{}\n{}\n{}\n{}\n".format(self.pid, eid, action, path)
+        return self._dispatch(cmd)
+
+    def unregister(self, eid):
+        ret = ""
+        try:
+            e = self.registry[eid]
+        except KeyError:
+            pass
+        else:
+            if self.running:
+                cmd = "unregister\n{}\n{}\n{}\n{}\n".format(self.pid, eid, e['action'], e['path'])
+                ret = self._dispatch(cmd)
+            del self.registry[eid]
+        return ret
+
+
+def clean_up_reg(signal, frame):
+    """
+    When 'cppython remote_port_forward.py' gets a SIGTERM, config_store_receiver.py doesn't
+    clean up registrations. Even if it did, the comm module can't rely on an external service
+    to clean up.
+    """
+    EventingCSClient('CSClient').stop()
+    sys.exit(0)
+
+
+signal.signal(signal.SIGTERM, clean_up_reg)

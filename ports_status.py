@@ -1,38 +1,22 @@
-import cs
 import time
-import sys
-import logging
-import logging.handlers
-
-
-handlers = [logging.StreamHandler()]
-
-if sys.platform == 'linux2':
-    # on router also use the syslog
-    handlers.append(logging.handlers.SysLogHandler(address='/dev/log'))
-
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s %(name)s: %(message)s',
-                    datefmt='%b %d %H:%M:%S',
-                    handlers=handlers)
-
-log = logging.getLogger('ports-status')
+from csclient import EventingCSClient
+cp = EventingCSClient('ports-status')
 
 APP_NAME = 'PORTS_STATUS'
-DEBUG = True
+DEBUG = False
 MODELS_WITHOUT_WAN = ['CBA', 'W200', 'W400', 'L950', 'IBR200', '4250']
 
 if DEBUG:
-    print("DEBUG ENABLED")
+    cp.log("DEBUG ENABLED")
 
 if DEBUG:
-    print("Getting Model")
+    cp.log("Getting Model")
 
 """Get model number, since some models don't have ethernet WAN"""
 model = ''
-model = cs.CSClient().get('/status/product_info/product_name').get('data')
+model = cp.get('/status/product_info/product_name')
 if DEBUG:
-    print(model)
+    cp.log(model)
 
 while True:
     try:
@@ -42,25 +26,25 @@ while True:
         is_available_wwan = 0
         is_configured_wwan = 0
 
-        wans = cs.CSClient().get('/status/wan/devices').get('data')
+        wans = cp.get('/status/wan/devices')
 
         if wans:
 
             """Get status of ethernet WANs"""
             for wan in (wan for wan in wans if 'ethernet' in wan):
 
-                summary = cs.CSClient().get('/status/wan/devices/{}/status/summary'.format(wan)).get('data')
+                summary = cp.get('/status/wan/devices/{}/status/summary'.format(wan))
+                if summary:
+                    if 'connected' in summary:
+                        is_available_wan = 1
+                        ports_status += "WAN: 🟢 "
 
-                if 'connected' in summary:
-                    is_available_wan = 1
-                    ports_status += "WAN: 🟢 "
+                    elif 'available' in summary or 'standby' in summary:
+                        is_available_wan = 2
+                        ports_status += "WAN: 🟡 "
 
-                elif 'available' in summary or 'standby' in summary:
-                    is_available_wan = 2
-                    ports_status += "WAN: 🟡 "
-
-                elif 'error' in summary:
-                    continue
+                    elif 'error' in summary:
+                        continue
 
             """If no active/standby WANs are found, show offline"""
             if is_available_wan == 0 and not any(x in model for x in MODELS_WITHOUT_WAN):
@@ -68,14 +52,16 @@ while True:
 
             ports_status += "LAN:"
 
+            ports = cp.get('/status/ethernet')
             """Get status of all ethernet ports"""
-            for port in cs.CSClient().get('/status/ethernet').get('data'):
-                """Ignore ethernet0 (treat as WAN) except for IBR200/CBA"""
-                if (port['port'] == 0 and any(x in model for x in MODELS_WITHOUT_WAN)) or (port['port'] >= 1):
-                    if port['link'] == "up":
-                        ports_status += " 🟢 "
-                    else:
-                        ports_status += " ⚫️ "
+            if ports:
+                for port in ports:
+                    """Ignore ethernet0 (treat as WAN) except for IBR200/CBA"""
+                    if (port['port'] == 0 and any(x in model for x in MODELS_WITHOUT_WAN)) or (port['port'] >= 1):
+                        if port['link'] == "up":
+                            ports_status += " 🟢 "
+                        else:
+                            ports_status += " ⚫️ "
 
             """Get status of all modems"""
             for wan in (wan for wan in wans if 'mdm' in wan):
@@ -84,18 +70,19 @@ while True:
                 if 'mdm' in wan:
 
                     """Get modem status for each modem"""
-                    summary = cs.CSClient().get('/status/wan/devices/{}/status/summary'.format(wan)).get('data')
+                    summary = cp.get('/status/wan/devices/{}/status/summary'.format(wan))
 
-                    if 'connected' in summary:
-                        is_available_modem = 1
-                        ports_status += "MDM: 🟢 "
+                    if summary:
+                        if 'connected' in summary:
+                            is_available_modem = 1
+                            ports_status += "MDM: 🟢 "
 
-                    elif 'available' in summary or 'standby' in summary:
-                        is_available_modem = 2
-                        ports_status += "MDM: 🟡 "
+                        elif 'available' in summary or 'standby' in summary:
+                            is_available_modem = 2
+                            ports_status += "MDM: 🟡 "
 
-                    elif 'error' in summary:
-                        continue
+                        elif 'error' in summary:
+                            continue
 
             """If no active/standby modems are found, show offline"""
             if is_available_modem == 0:
@@ -103,7 +90,7 @@ while True:
 
             for wan in (wan for wan in wans if 'wwan' in wan):
                 is_configured_wwan = 1
-                summary = cs.CSClient().get('/status/wan/devices/{}/status/summary'.format(wan)).get('data')
+                summary = cp.get('/status/wan/devices/{}/status/summary'.format(wan))
 
                 if summary:
 
@@ -126,24 +113,26 @@ while True:
             if is_available_wwan == 0 and is_configured_wwan == 1:
                 ports_status += "WWAN: ⚫️ "
 
-            ipverifys = cs.CSClient().get('/status/ipverify').get('data')
+            ipverifys = cp.get('/status/ipverify')
             if ipverifys:
-                ports_status += "VPN:"
+                ports_status += "IPV:"
 
                 for ipverify in ipverifys:
-                    testpass = cs.CSClient().get('/status/ipverify/{}/pass'.format(ipverify)).get('data')
+                    testpass = cp.get('/status/ipverify/{}/pass'.format(ipverify))
                     if testpass:
                         ports_status += " 🟢 "
                     else:
                         ports_status += " ⚫️ "
 
+
         """Write string to description field"""
         if DEBUG:
-            print("WRITING DESCRIPTION")
-            print(ports_status)
-        cs.CSClient().put('/config/system/desc', ports_status)
-        """Wait 5 seconds before checking again"""
-        time.sleep(5)
+            cp.log("WRITING DESCRIPTION")
+            cp.log(ports_status)
+        cp.put('config/system/desc', ports_status)
 
     except Exception as err:
-        log.error("Failed with exception={} err={}".format(type(err), str(err)))
+        cp.log("Failed with exception={} err={}".format(type(err), str(err)))
+
+    """Wait 5 seconds before checking again"""
+    time.sleep(5)

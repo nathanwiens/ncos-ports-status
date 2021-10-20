@@ -5,7 +5,7 @@ ports_status
 
 Application Version
 ===================
-0.7
+1.10
 
 
 NCOS Devices Supported
@@ -20,7 +20,7 @@ External Requirements
 Application Purpose
 ===================
 This application will set the device description to visually show
-the up/down status of modem and ethernet ports.
+the LAN/WAN/WWAN/Modem/IP Verify status
 
 
 Expected Output
