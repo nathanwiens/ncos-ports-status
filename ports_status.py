@@ -4,7 +4,7 @@ cp = EventingCSClient('ports-status')
 
 APP_NAME = 'PORTS_STATUS'
 DEBUG = False
-MODELS_WITHOUT_WAN = ['CBA', 'W200', 'W400', 'L950', 'IBR200', '4250']
+MODELS_WITHOUT_WAN = ['CBA', 'W18', 'W200', 'W400', 'L950', 'IBR200', '4250']
 
 if DEBUG:
     cp.log("DEBUG ENABLED")
@@ -27,9 +27,13 @@ while True:
         is_configured_wwan = 0
 
         wans = cp.get('/status/wan/devices')
+        mdm_present = False
+        for wan in wans:
+            if 'mdm' in wan:
+                mdm_present = True
+        ports = cp.get('/status/ethernet')
 
-        if wans:
-
+        if wans and ports and mdm_present:
             """Get status of ethernet WANs"""
             for wan in (wan for wan in wans if 'ethernet' in wan):
 
@@ -52,16 +56,14 @@ while True:
 
             ports_status += "LAN:"
 
-            ports = cp.get('/status/ethernet')
             """Get status of all ethernet ports"""
-            if ports:
-                for port in ports:
-                    """Ignore ethernet0 (treat as WAN) except for IBR200/CBA"""
-                    if (port['port'] == 0 and any(x in model for x in MODELS_WITHOUT_WAN)) or (port['port'] >= 1):
-                        if port['link'] == "up":
-                            ports_status += " 🟢 "
-                        else:
-                            ports_status += " ⚫️ "
+            for port in ports:
+                """Ignore ethernet0 (treat as WAN) except for IBR200/CBA"""
+                if (port['port'] == 0 and any(x in model for x in MODELS_WITHOUT_WAN)) or (port['port'] >= 1):
+                    if port['link'] == "up":
+                        ports_status += " 🟢 "
+                    else:
+                        ports_status += " ⚫️ "
 
             """Get status of all modems"""
             for wan in (wan for wan in wans if 'mdm' in wan):
@@ -73,20 +75,17 @@ while True:
                     summary = cp.get('/status/wan/devices/{}/status/summary'.format(wan))
 
                     if summary:
+                        #cp.log("Modem {} Summary: {}".format(wan, summary))
                         if 'connected' in summary:
                             is_available_modem = 1
                             ports_status += "MDM: 🟢 "
 
-                        elif 'available' in summary or 'standby' in summary:
+                        elif 'available' in summary or 'standby' in summary or 'suspended' in summary or 'connecting' in summary or 'transitioning' in summary or 'unready' in summary or 'unconfigured' in summary or 'operation failed' in summary or 'switch' in summary:
                             is_available_modem = 2
                             ports_status += "MDM: 🟡 "
 
-                        elif 'error' in summary:
-                            continue
-
-            """If no active/standby modems are found, show offline"""
-            if is_available_modem == 0:
-                ports_status += "MDM: ⚫️ "
+                        else:
+                            ports_status += "MDM: ⚫️ "
 
             for wan in (wan for wan in wans if 'wwan' in wan):
                 is_configured_wwan = 1
@@ -100,7 +99,7 @@ while True:
                         """Stop checking if active WWAN is found"""
                         break
 
-                    elif 'available' in summary or 'standby' in summary:
+                    elif 'available' in summary or 'standby' in summary or 'suspended' in summary or 'connecting' in summary or 'transitioning' in summary or 'unready' in summary or 'unconfigured' in summary or 'operation failed' in summary or 'switch' in summary:
                         is_available_wwan = 2
                         ports_status += "WWAN: 🟡 "
                         """If standby WWAN found, keep checking for an active one"""
@@ -125,11 +124,11 @@ while True:
                         ports_status += " ⚫️ "
 
 
-        """Write string to description field"""
-        if DEBUG:
-            cp.log("WRITING DESCRIPTION")
-            cp.log(ports_status)
-        cp.put('config/system/desc', ports_status)
+            """Write string to description field"""
+            if DEBUG:
+                cp.log("WRITING DESCRIPTION")
+                cp.log(ports_status)
+            cp.put('config/system/desc', ports_status)
 
     except Exception as err:
         cp.log("Failed with exception={} err={}".format(type(err), str(err)))
