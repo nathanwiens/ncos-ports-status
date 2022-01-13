@@ -5,7 +5,7 @@ ports_status
 
 Application Version
 ===================
-1.10
+1.30
 
 
 NCOS Devices Supported
@@ -25,6 +25,6 @@ the LAN/WAN/WWAN/Modem/IP Verify status
 
 Expected Output
 ===============
-Description updated
+Description updated every 5 seconds
 Log printed
 
